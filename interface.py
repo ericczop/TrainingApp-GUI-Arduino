@@ -2,6 +2,7 @@ from kivy.app import App
 from kivy.lang import Builder
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.properties import NumericProperty
+from kivy.clock import Clock
 from main import GiveData
 
 Builder.load_string("""
@@ -29,6 +30,17 @@ Builder.load_string("""
             Button:
                 text: 'QUIT'
                 font_size: 24
+
+<CountdownScreen>:
+    countdown_label: countdown_label
+    BoxLayout:
+        orientation: 'vertical'
+        Label:
+            id: countdown_label
+            font_size: 36
+            bold: True
+            text: f'{root.countdown}'
+
 <StartScreen>:
     kg_label: kg_label
     reps_label: reps_label
@@ -40,13 +52,26 @@ Builder.load_string("""
         Label:
             id: reps_label
             text: 'Repetition data is being processed!'
-
 """)
 
 
 class MenuScreen(Screen):
     def start_button_pressed(self):
-        self.manager.current = 'start'
+        self.manager.current = 'countdown'
+
+
+class CountdownScreen(Screen):
+    countdown = NumericProperty(5)
+
+    def on_enter(self):
+        Clock.schedule_interval(self.update_countdown, 1)
+
+    def update_countdown(self, dt):
+        self.countdown -= 1
+        self.countdown_label.text = str(self.countdown)
+        if self.countdown == 0:
+            Clock.unschedule(self.update_countdown)
+            self.manager.current = 'start'
 
 
 class StartScreen(Screen):
@@ -55,9 +80,8 @@ class StartScreen(Screen):
 
     def on_enter(self):
         data_provider = GiveData()
-        self.kg = data_provider.give()[0]
-        self.reps = data_provider.give()[1]
-        self.kg_label.text = f'Kilograms: {self.kg}kg'
+        self.kg, self.reps = data_provider.give()
+        self.kg_label.text = f'Kilograms assumed: {self.kg}kg'
         self.reps_label.text = f'Number of reps done: {self.reps}'
 
 
@@ -65,10 +89,11 @@ class MainMenuApp(App):
     def build(self):
         sm = ScreenManager()
         menu_screen = MenuScreen(name="menu")
+        countdown_screen = CountdownScreen(name="countdown")
         start_screen = StartScreen(name="start")
         sm.add_widget(menu_screen)
+        sm.add_widget(countdown_screen)
         sm.add_widget(start_screen)
-
         return sm
 
 
