@@ -1,11 +1,14 @@
-from kivy.app import App
+from kivymd.app import MDApp
 from kivy.lang import Builder
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.properties import NumericProperty, ListProperty
 from kivy.clock import Clock
+from kivymd.uix.list import OneLineListItem
 from main import GiveData
 from kivy.core.window import Window
 import threading
+import pandas as pd
+
 
 Builder.load_string("""
 <MenuScreen>:
@@ -30,6 +33,7 @@ Builder.load_string("""
                 text: 'LAST TRAININGS'
                 font_size: app.font_size
                 background_color: app.dark_brown
+                on_press: root.last_trainings_button_pressed()
         BoxLayout:
             orientation: 'horizontal'
             padding: 5
@@ -110,6 +114,29 @@ Builder.load_string("""
                 size_hint: 0.5, 1
                 on_press: root.go_to_next_set()
                 disabled: True
+<LastTrainingScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        Label:
+            font_size: 50
+            size_hint: 1, 0.5
+            bold: True
+            color: app.dark_brown
+            text: 'Last Training Data'
+
+        ScrollView:
+            MDList:
+                id: container
+                color: app.dark_brown
+
+        Button:
+            text: 'Back to Menu'
+            font_size: app.font_size
+            background_color: app.dark_brown
+            size_hint: 1, 0.5
+            on_press: root.go_back_to_menu()
+
+
 """)
 
 
@@ -120,6 +147,9 @@ class MenuScreen(Screen):
         data_thread = threading.Thread(target=self.process_data)
         data_thread.start()
 
+    def last_trainings_button_pressed(self):
+        self.manager.current = 'last_training'
+
     def process_data(self):
         data_provider = GiveData()
         kg, reps = data_provider.give()
@@ -127,11 +157,14 @@ class MenuScreen(Screen):
         start_screen.initialize_data(kg, reps)
 
     def quit_app(self):
-        App.get_running_app().stop()
+        MDApp.get_running_app().stop()
 
 
 class CountdownScreen(Screen):
     countdown = NumericProperty(5)
+
+    def on_pre_enter(self):
+        self.countdown = 5
 
     def on_enter(self):
         Clock.schedule_interval(self.update_countdown, 1)
@@ -151,19 +184,76 @@ class StartScreen(Screen):
     def initialize_data(self, kg, reps):
         self.kg = kg
         self.reps = reps
+        self.save_data_to_csv(kg, reps, filename='training_data.csv')
         self.kg_label.text = f'Kilograms assumed: {self.kg}kg'
         self.reps_label.text = f'Number of reps done: {self.reps}'
         self.ids.back_button.disabled = False
         self.ids.next_button.disabled = False
 
+    def process_data(self):
+        data_provider = GiveData()
+        kg, reps = data_provider.give()
+        start_screen = self.manager.get_screen('start')
+        start_screen.initialize_data(kg, reps)
+
     def go_back_to_menu(self):
+        self.reset()
         self.manager.current = 'menu'
 
     def go_to_next_set(self):
+        self.reset()
         self.manager.current = 'countdown'
+        data_thread = threading.Thread(target=self.process_data)
+        data_thread.start()
 
+    def reset(self):
+        self.ids.back_button.disabled = True
+        self.ids.next_button.disabled = True
+        self.kg_label.text = 'Weight data is being processed!'
+        self.reps_label.text = 'Repetition data is being processed!'
 
-class MainMenuApp(App):
+    def save_data_to_csv(self, kg, reps, filename='training_data.csv'):
+        try:
+            df = pd.read_csv(filename)
+        except FileNotFoundError:
+            df = pd.DataFrame(columns=['ID', 'Kilograms', 'Repetitions'])
+
+        if df.empty:
+            new_id = 1
+        else:
+            new_id = df['ID'].max() + 1
+
+        new_data = pd.DataFrame({'ID': [new_id], 'Kilograms': [kg], 'Repetitions': [reps]})
+        df = pd.concat([df, new_data], ignore_index=True)
+        df.to_csv(filename, index=False)
+
+class LastTrainingScreen(Screen):
+    def on_pre_enter(self):
+        training_data = self.load_training_data()
+        try:
+            for entry in training_data:
+                item = OneLineListItem(text=entry)
+                item.bg_color = (73 / 255, 67 / 255, 49 / 255, 0.8)  # Background color
+                self.ids.container.add_widget(item)
+        except TypeError:
+            pass
+    def go_back_to_menu(self):
+        self.ids.container.clear_widgets()
+        self.manager.current = 'menu'
+
+    def load_training_data(self, filename='training_data.csv'):
+        try:
+            df = pd.read_csv(filename)
+            if not df.empty:
+                training_data = []
+                for index, row in df.iterrows():
+                    data_entry = f'ID: {row["ID"]} | Kilograms: {row["Kilograms"]} | Repetitions: {row["Repetitions"]}'
+                    training_data.append(data_entry)
+                return training_data
+        except FileNotFoundError:
+            self.ids.container.add_widget(OneLineListItem(text="No training data available."))
+
+class MainMenuApp(MDApp):
     font_size = NumericProperty(24)
     background_color = (214 / 255, 214 / 255, 177 / 255, 0.7)
     light_brown = ListProperty((63 / 255, 63 / 255, 55 / 255, 0.6))
@@ -176,9 +266,11 @@ class MainMenuApp(App):
         menu_screen = MenuScreen(name="menu")
         countdown_screen = CountdownScreen(name="countdown")
         start_screen = StartScreen(name="start")
+        last_training_screen = LastTrainingScreen(name="last_training")
         sm.add_widget(menu_screen)
         sm.add_widget(countdown_screen)
         sm.add_widget(start_screen)
+        sm.add_widget(last_training_screen)
         return sm
 
 
