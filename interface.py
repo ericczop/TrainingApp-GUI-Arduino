@@ -5,8 +5,11 @@ from kivy.properties import NumericProperty, ListProperty
 from kivy.clock import Clock
 from kivymd.uix.list import OneLineListItem
 from main import GiveData
+from connection import Connection
+import time
 import threading
 import pandas as pd
+
 
 Builder.load_string("""
 <MenuScreen>:
@@ -19,10 +22,12 @@ Builder.load_string("""
     BoxLayout:
         orientation: 'vertical'
         Label:
-            font_size: app.font_size
+            font_size: 40
             bold: True
-            color: app.dark_brown
+            color: (1,1,1,1)
             text: 'Welcome to my Training App!'
+            outline_color: app.dark_brown
+            outline_width: 2
 
         BoxLayout:
             orientation: 'horizontal'
@@ -62,6 +67,7 @@ Builder.load_string("""
             pos: self.pos
     countdown_label: countdown_label
     BoxLayout:
+        padding: 40
         orientation: 'vertical'
         Label:
             id: countdown_label
@@ -69,6 +75,15 @@ Builder.load_string("""
             color: app.dark_brown
             bold: True
             text: f'Start exercising in: {root.countdown}'
+        Button:
+            id: stop_button
+            text: 'STOP'
+            size_hint: (0.5, 0.5)
+            pos_hint: {'center_x': 0.5, 'center_y': 0.7}
+            font_size: 50
+            background_color: app.dark_red
+            on_press: root.stop_button_pressed()
+            disabled: True
 
 <StartScreen>:
     canvas.before:
@@ -108,6 +123,16 @@ Builder.load_string("""
             canvas.before:
                 Color:
                     rgba: app.dark_brown
+                Rectangle:
+                    size: self.size
+                    pos: self.pos
+        Label:
+            id: time_label
+            text: 'Time data is being processed!'
+            font_size: 20
+            canvas.before:
+                Color:
+                    rgba: app.light_red
                 Rectangle:
                     size: self.size
                     pos: self.pos
@@ -230,8 +255,7 @@ class MenuScreen(Screen):
         self.manager.current = 'statistics'
 
     def process_data(self):
-        data_provider = GiveData()
-        kg, reps = data_provider.give()
+        kg, reps = data_provider.give(connection)
         start_screen = self.manager.get_screen('start')
         start_screen.initialize_data(kg, reps)
 
@@ -241,8 +265,11 @@ class MenuScreen(Screen):
 
 class CountdownScreen(Screen):
     countdown = NumericProperty(5)
+    start_time = NumericProperty(0)
+    end_time = NumericProperty(0)
 
     def on_pre_enter(self):
+        self.ids.stop_button.disabled = True
         self.countdown = 5
 
     def on_enter(self):
@@ -253,25 +280,34 @@ class CountdownScreen(Screen):
         self.countdown_label.text = f'Start exercising in: {self.countdown}'
         if self.countdown == 0:
             Clock.unschedule(self.update_countdown)
-            self.manager.current = 'start'
+            self.ids.countdown_label.text = '          Click a button\nwhen you finish your set!'
+            self.ids.stop_button.disabled = False
+            self.start_time = time.time()
 
+    def stop_button_pressed(self):
+        connection.stop_providing()
+        self.manager.current = 'start'
+        self.end_time = time.time()
+        duration_time = round(self.end_time - self.start_time, 2)
+        start_screen = self.manager.get_screen('start')
+        start_screen.duration = duration_time
 
 class StartScreen(Screen):
     kg = NumericProperty(0)
     reps = NumericProperty(0)
-
+    duration = NumericProperty(0)
     def initialize_data(self, kg, reps):
         self.kg = kg
         self.reps = reps
         # self.save_data_to_csv(kg, reps, filename='training_data.csv')
-        self.kg_label.text = f'Kilograms: {self.kg}kg'
+        self.kg_label.text = f'Kilograms assumed: {self.kg}kg'
         self.reps_label.text = f'Number of reps done: {self.reps}'
+        self.ids.time_label.text = f'Time of set done: {self.duration}s'
         self.ids.exercise_name_input.disabled = False
         self.ids.save_button.disabled = False
 
     def process_data(self):
-        data_provider = GiveData()
-        kg, reps = data_provider.give()
+        kg, reps = data_provider.give(connection)
         start_screen = self.manager.get_screen('start')
         start_screen.initialize_data(kg, reps)
 
@@ -290,21 +326,27 @@ class StartScreen(Screen):
         self.ids.next_button.disabled = True
         self.kg_label.text = 'Weight data is being processed!'
         self.reps_label.text = 'Repetition data is being processed!'
-        self.ids.exercise_name_input.text = ''  # Clear the exercise name input
+        self.ids.exercise_name_input.text = ''
 
-    def save_data_to_csv(self, kg, reps, filename='training_data.csv'):
-        exercise_name = self.ids.exercise_name_input.text  # Get the exercise name
+    def save_data_to_csv(self, kg, reps, duration, filename='training_data.csv'):
+        exercise_name = self.ids.exercise_name_input.text
         try:
             df = pd.read_csv(filename)
         except FileNotFoundError:
-            df = pd.DataFrame(columns=['ExerciseName', 'Kilograms', 'Repetitions'])
+            df = pd.DataFrame(columns=['ID', 'ExerciseName', 'Kilograms', 'Repetitions', 'Time'])
 
-        new_data = pd.DataFrame({'ExerciseName': [exercise_name], 'Kilograms': [kg], 'Repetitions': [reps]})
+        if df.empty:
+            new_id = 1
+        else:
+            new_id = df['ID'].max() + 1
+
+        new_data = pd.DataFrame(
+            {'ID': [new_id], 'ExerciseName': [exercise_name], 'Kilograms': [kg], 'Repetitions': [reps], 'Time': [duration]})
         df = pd.concat([df, new_data], ignore_index=True)
         df.to_csv(filename, index=False)
 
     def save_button_pressed(self):
-        self.save_data_to_csv(self.kg, self.reps, filename='training_data.csv')
+        self.save_data_to_csv(self.kg, self.reps, self.duration, filename='training_data.csv')
         self.ids.back_button.disabled = False
         self.ids.next_button.disabled = False
         self.ids.exercise_name_input.disabled = True
@@ -317,7 +359,7 @@ class LastTrainingScreen(Screen):
         try:
             for entry in training_data:
                 item = OneLineListItem(text=entry)
-                item.bg_color = (73 / 255, 67 / 255, 49 / 255, 0.8)  # Background color
+                item.bg_color = (73 / 255, 67 / 255, 49 / 255, 0.8)
                 self.ids.container.add_widget(item)
         except TypeError:
             pass
@@ -332,7 +374,8 @@ class LastTrainingScreen(Screen):
             if not df.empty:
                 training_data = []
                 for index, row in df.iterrows():
-                    data_entry = f'Exercise: {row["ExerciseName"]} | Kilograms: {row["Kilograms"]} | Repetitions: {row["Repetitions"]}'
+                    data_entry = (f'ID: {row["ID"]} | Exercise: {row["ExerciseName"]} | Kilograms: {row["Kilograms"]}'
+                                  f' | Repetitions: {row["Repetitions"]} | Time: {row["Time"]}')
                     training_data.append(data_entry)
                 return training_data
         except FileNotFoundError:
@@ -358,18 +401,19 @@ class StatisticsScreen(Screen):
 
                 # Add other statistics as needed
                 for value in stats:
-                    if value not in ["Max Kilograms", "Repetitions with Max Kilograms"]:
+                    if value not in ["Max Kilograms", "Repetitions with Max Kilograms", "Mean Time"]:
                         item = OneLineListItem(text=f'{value}: {int(stats[value])}',
                                                bg_color=(73 / 255, 67 / 255, 49 / 255, 0.8))
                         statistics_container.add_widget(item)
 
+                duration_time = OneLineListItem(
+                    text=f'Mean Time: {stats["Mean Time"]}s',
+                    bg_color=(73 / 255, 67 / 255, 49 / 255, 0.8)
+                )
+                statistics_container.add_widget(duration_time)
         else:
             item = OneLineListItem(text="No training data available.")
             statistics_container.add_widget(item)
-
-    def go_back_to_menu(self):
-        self.ids.statistics_container.clear_widgets()
-        self.manager.current = 'menu'
 
     def go_back_to_menu(self):
         self.ids.statistics_container.clear_widgets()
@@ -387,6 +431,7 @@ class StatisticsScreen(Screen):
                     mean_reps = group['Repetitions'].mean()
                     total_kgs = group['Kilograms'].sum() * group['Repetitions'].sum()
                     total_reps = group['Repetitions'].sum()
+                    mean_time = group['Time'].mean()
                     count = len(group)
                     statistics_data[exercise_name] = {
                         "Max Kilograms": max_kg,
@@ -395,6 +440,7 @@ class StatisticsScreen(Screen):
                         "Mean Repetitions": mean_reps,
                         "Total Repetitions": total_reps,
                         "Total Kilograms Lifted": total_kgs,
+                        "Mean Time": mean_time,
                         "Total Entries": count,
                     }
                 return statistics_data
@@ -411,6 +457,9 @@ class MainMenuApp(MDApp):
     brown = ListProperty((53 / 255, 42 / 255, 2 / 255, 1))
     brown2 = ListProperty((53 / 255, 42 / 255, 2 / 255, 0.5))
     dark_green = ListProperty((21 / 255, 56 / 255, 44 / 255, 0.96))
+    dark_red = ListProperty((139/255, 0, 0, 1))
+    light_red = ListProperty((139/255, 0, 0, 0.3))
+
 
     def build(self):
         sm = ScreenManager(transition=SwapTransition())
@@ -428,4 +477,6 @@ class MainMenuApp(MDApp):
 
 
 if __name__ == "__main__":
+    data_provider = GiveData()
+    connection = Connection("COM3")
     MainMenuApp().run()
