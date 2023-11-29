@@ -1,3 +1,2 @@
-ID,ExerciseName,Kilograms,Repetitions
-1,Lateral Raises,100,7
-2,Biceps,100,7
+ExerciseName,Kilograms,Repetitions
+Lateral Raises,100,7
