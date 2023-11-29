@@ -94,10 +94,35 @@ Builder.load_string("""
                 Rectangle:
                     size: self.size
                     pos: self.pos
+        Label:
+            text: 'Enter exercise name below:'
+            font_size: 20
+            canvas.before:
+                Color:
+                    rgba: app.brown
+                Rectangle:
+                    size: self.size
+                    pos: self.pos
+        TextInput:
+            id: exercise_name_input
+            hint_text: 'Exercise Name'
+            font_size: app.font_size
+            background_color: app.brown2
+            halign: 'center'
+            padding_y: [self.height / 2.0 - (self.line_height / 2.0) * len(self._lines), 0]
+            disabled: True
         BoxLayout:
             orientation: 'horizontal'
             padding: 5
             spacing: 5
+            Button:
+                id: save_button
+                text: 'Save'
+                font_size: app.font_size
+                background_color: app.dark_brown
+                size_hint: 0.5, 1
+                disabled: True
+                on_press: root.save_button_pressed()
             Button:
                 id: back_button
                 text: 'Back'
@@ -156,6 +181,7 @@ class MenuScreen(Screen):
         start_screen = self.manager.get_screen('start')
         start_screen.initialize_data(kg, reps)
 
+
     def quit_app(self):
         MDApp.get_running_app().stop()
 
@@ -184,11 +210,12 @@ class StartScreen(Screen):
     def initialize_data(self, kg, reps):
         self.kg = kg
         self.reps = reps
-        self.save_data_to_csv(kg, reps, filename='training_data.csv')
+        # self.save_data_to_csv(kg, reps, filename='training_data.csv')
         self.kg_label.text = f'Kilograms assumed: {self.kg}kg'
         self.reps_label.text = f'Number of reps done: {self.reps}'
-        self.ids.back_button.disabled = False
-        self.ids.next_button.disabled = False
+        self.ids.exercise_name_input.disabled = False
+        self.ids.save_button.disabled = False
+
 
     def process_data(self):
         data_provider = GiveData()
@@ -211,21 +238,32 @@ class StartScreen(Screen):
         self.ids.next_button.disabled = True
         self.kg_label.text = 'Weight data is being processed!'
         self.reps_label.text = 'Repetition data is being processed!'
+        self.ids.exercise_name_input.text = ''  # Clear the exercise name input
 
     def save_data_to_csv(self, kg, reps, filename='training_data.csv'):
+        exercise_name = self.ids.exercise_name_input.text  # Get the exercise name
         try:
             df = pd.read_csv(filename)
         except FileNotFoundError:
-            df = pd.DataFrame(columns=['ID', 'Kilograms', 'Repetitions'])
+            df = pd.DataFrame(columns=['ID', 'ExerciseName', 'Kilograms', 'Repetitions'])
 
         if df.empty:
             new_id = 1
         else:
             new_id = df['ID'].max() + 1
 
-        new_data = pd.DataFrame({'ID': [new_id], 'Kilograms': [kg], 'Repetitions': [reps]})
+        new_data = pd.DataFrame({'ID': [new_id], 'ExerciseName': [exercise_name], 'Kilograms': [kg], 'Repetitions': [reps]})
         df = pd.concat([df, new_data], ignore_index=True)
         df.to_csv(filename, index=False)
+
+
+    def save_button_pressed(self):
+        self.save_data_to_csv(self.kg, self.reps, filename='training_data.csv')
+        self.ids.back_button.disabled = False
+        self.ids.next_button.disabled = False
+        self.ids.exercise_name_input.disabled = True
+        self.ids.save_button.disabled = True
+
 
 class LastTrainingScreen(Screen):
     def on_pre_enter(self):
@@ -237,6 +275,7 @@ class LastTrainingScreen(Screen):
                 self.ids.container.add_widget(item)
         except TypeError:
             pass
+
     def go_back_to_menu(self):
         self.ids.container.clear_widgets()
         self.manager.current = 'menu'
@@ -247,7 +286,7 @@ class LastTrainingScreen(Screen):
             if not df.empty:
                 training_data = []
                 for index, row in df.iterrows():
-                    data_entry = f'ID: {row["ID"]} | Kilograms: {row["Kilograms"]} | Repetitions: {row["Repetitions"]}'
+                    data_entry = f'ID: {row["ID"]} | Exercise: {row["ExerciseName"]} | Kilograms: {row["Kilograms"]} | Repetitions: {row["Repetitions"]}'
                     training_data.append(data_entry)
                 return training_data
         except FileNotFoundError:
@@ -259,6 +298,8 @@ class MainMenuApp(MDApp):
     light_brown = ListProperty((63 / 255, 63 / 255, 55 / 255, 0.6))
     medium_brown = ListProperty((73 / 255, 67 / 255, 49 / 255, 0.8))
     dark_brown = ListProperty((73 / 255, 67 / 255, 49 / 255, 1))
+    brown = ListProperty((53 / 255, 42 / 255, 2 / 255, 1))
+    brown2 = ListProperty((53 / 255, 42 / 255, 2 / 255, 0.5))
 
     def build(self):
         Window.clearcolor = self.background_color
