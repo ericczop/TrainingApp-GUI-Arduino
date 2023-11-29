@@ -73,7 +73,7 @@ class StartScreen(Screen):
     def initialize_data(self, kg, reps):
         self.kg = kg
         self.reps = reps
-        self.kg_label.text = f'Kilograms assumed: {self.kg}kg'
+        self.kg_label.text = f'Kilograms loaded: {self.kg}kg'
         self.reps_label.text = f'Number of reps done: {self.reps}'
         self.ids.time_label.text = f'Time of set done: {self.duration}s'
         self.ids.exercise_name_input.disabled = False
@@ -198,7 +198,7 @@ class StatisticsScreen(Screen):
         self.manager.current = 'menu'
 
 
-class MainMenuApp(MDApp):
+class TrainingAppApp(MDApp):
     font_size = NumericProperty(24)
     button_size = NumericProperty(40)
 
@@ -229,4 +229,4 @@ class MainMenuApp(MDApp):
 
 if __name__ == "__main__":
     connection = Connection("COM3")
-    MainMenuApp().run()
+    TrainingAppApp().run()
